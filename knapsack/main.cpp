@@ -59,6 +59,59 @@ pair<long long, vector<short>> solve_dp(const int n, const vector<long long>& v,
     return {dp[max_w], chosen};
 }
 
+const long long max_bb_nodes = 1000000;
+
+long long bb_upper_bound(const vector<Unit>& units, int pos, long long cur_w, long long cur_v, long long max_w) {
+    long long remaining = max_w - cur_w;
+    long long bound = cur_v;
+    for (int i = pos; i < units.size(); ++i) {
+        if (units[i].w <= remaining) {
+            remaining -= units[i].w;
+            bound += units[i].v;
+        } else {
+            bound += (units[i].v * remaining + units[i].w - 1) / units[i].w;
+            break;
+        }
+    }
+    return bound;
+}
+
+void bb_dfs(const vector<Unit>& units, int pos, long long cur_w, long long cur_v, long long max_w,
+            long long& nodes, long long& best_v, vector<short>& chosen, vector<short>& best_chosen) {
+    if (++nodes > max_bb_nodes) return;
+    if (cur_v > best_v) {
+        best_v = cur_v;
+        best_chosen = chosen;
+    }
+    if (pos == units.size() || bb_upper_bound(units, pos, cur_w, cur_v, max_w) <= best_v) return;
+
+    if (cur_w + units[pos].w <= max_w) {
+        chosen[units[pos].idx] = 1;
+        bb_dfs(units, pos + 1, cur_w + units[pos].w, cur_v + units[pos].v,
+               max_w, nodes, best_v, chosen, best_chosen);
+        chosen[units[pos].idx] = 0;
+    }
+    bb_dfs(units, pos + 1, cur_w, cur_v, max_w,
+           nodes, best_v, chosen, best_chosen);
+}
+
+pair<long long, vector<short>> solve_bb(const int n, const vector<long long>& v, const vector<long long>& w, const long long max_w) {
+    vector<Unit> units(n);
+    for (int i = 0; i < n; ++i) {
+        units[i] = {v[i], w[i], i};
+    }
+    sort(units.begin(), units.end());
+    auto greedy = solve_greedy(n, v, w, max_w);
+    long long best_v = greedy.first;
+    vector<short> best_chosen = greedy.second;
+    vector<short> chosen(n, 0);
+    long long nodes = 0;
+
+    bb_dfs(units, 0, 0, 0, max_w, nodes, best_v, chosen, best_chosen);
+
+    return {best_v, best_chosen};
+}
+
 int main() {
     int n;
     long long max_w;
@@ -72,10 +125,15 @@ int main() {
     Solution ans;
     Solution ans_greedy;
     Solution ans_dp;
+    Solution ans_bb;
     ans = ans_greedy = solve_greedy(n, v, w, max_w);
     ans_dp = solve_dp(n, v, w, max_w);
-    if (ans_dp.first > ans_greedy.first) {
+    ans_bb = ans_dp.first == -1 ? solve_bb(n, v, w, max_w) : Solution{-1, {}};
+    if (ans_dp.first > ans.first) {
         ans = ans_dp;
+    }
+    if (ans_bb.first > ans.first) {
+        ans = ans_bb;
     }
     cout << ans.first << endl;
     for (int i = 0; i < n; ++i) {
