@@ -3,6 +3,7 @@
 #include <sstream>
 #include <string>
 #include <algorithm>
+#include <random>
 using namespace std;
 
 pair<long long, vector<short>> solve_greedy(int n, int m, const vector<long long>& costs, const vector<vector<int>>& sets) {
@@ -37,8 +38,7 @@ pair<long long, vector<short>> solve_greedy(int n, int m, const vector<long long
     return {total_cost, chosen};
 }
 
-pair<long long, vector<short>> solve_reverse_delete(int n, int m, const vector<long long>& costs, const vector<vector<int>>& sets) {
-    auto ans = solve_greedy(n, m, costs, sets);
+pair<long long, vector<short>> reverse_delete(pair<long long, vector<short>> ans, int n, int m, const vector<long long>& costs, const vector<vector<int>>& sets) {
     long long total_cost = ans.first;
     vector<short> chosen = ans.second;
     vector<int> cover_cnt(n, 0);
@@ -70,8 +70,11 @@ pair<long long, vector<short>> solve_reverse_delete(int n, int m, const vector<l
     return {total_cost, chosen};
 }
 
-pair<long long, vector<short>> solve_local_search(int n, int m, const vector<long long>& costs, const vector<vector<int>>& sets) {
-    auto ans = solve_reverse_delete(n, m, costs, sets);
+pair<long long, vector<short>> solve_reverse_delete(int n, int m, const vector<long long>& costs, const vector<vector<int>>& sets) {
+    return reverse_delete(solve_greedy(n, m, costs, sets), n, m, costs, sets);
+}
+
+pair<long long, vector<short>> local_search(pair<long long, vector<short>> ans, int n, int m, const vector<long long>& costs, const vector<vector<int>>& sets) {
     long long total_cost = ans.first;
     vector<short> chosen = ans.second;
     vector<int> cover_cnt(n, 0);
@@ -135,6 +138,73 @@ pair<long long, vector<short>> solve_local_search(int n, int m, const vector<lon
     return {total_cost, chosen};
 }
 
+pair<long long, vector<short>> solve_local_search(int n, int m, const vector<long long>& costs, const vector<vector<int>>& sets) {
+    auto ans = solve_reverse_delete(n, m, costs, sets);
+    return local_search(ans, n, m, costs, sets);
+}
+
+pair<long long, vector<short>> randomized_greedy(int n, int m, const vector<long long>& costs, const vector<vector<int>>& sets, int candidate_percent, mt19937& generator) {
+    vector<bool> covered(n, false);
+    vector<short> chosen(m, 0);
+    vector<int> gains(m, 0);
+    long long total_cost = 0;
+    int uncovered = n;
+
+    while (uncovered > 0) {
+        int best = -1;
+        int best_gain = 0;
+        for (int i = 0; i < m; ++i) {
+            if (chosen[i]) continue;
+            gains[i] = 0;
+            for (auto item : sets[i]) {
+                if (!covered[item]) ++gains[i];
+            }
+            if (gains[i] > 0 && (best == -1 || costs[i] * best_gain < costs[best] * gains[i])) {
+                best = i;
+                best_gain = gains[i];
+            }
+        }
+
+        vector<int> candidates;
+        for (int i = 0; i < m; ++i) {
+            if (!chosen[i] && gains[i] > 0 &&
+                costs[i] * best_gain * 100 <= costs[best] * gains[i] * candidate_percent) {
+                candidates.push_back(i);
+            }
+        }
+
+        uniform_int_distribution<int> distribution(0, candidates.size() - 1);
+        int add = candidates[distribution(generator)];
+        chosen[add] = 1;
+        total_cost += costs[add];
+        for (auto item : sets[add]) {
+            if (!covered[item]) {
+                covered[item] = true;
+                --uncovered;
+            }
+        }
+    }
+
+    return {total_cost, chosen};
+}
+
+pair<long long, vector<short>> solve_grasp(int n, int m, const vector<long long>& costs, const vector<vector<int>>& sets) {
+    auto best = solve_reverse_delete(n, m, costs, sets);
+    mt19937 generator(111111);
+    vector<int> candidate_percents = {105, 115, 130};
+    for (auto candidate_percent : candidate_percents) {
+        int iters = 100;
+        while (iters--) {
+            auto ans = randomized_greedy(n, m, costs, sets, candidate_percent, generator);
+            ans = reverse_delete(ans, n, m, costs, sets);
+            ans = local_search(ans, n, m, costs, sets);
+            if (ans.first < best.first) best = ans;
+        }
+    }
+
+    return local_search(best, n, m, costs, sets);
+}
+
 int main() {
     int n, m;
     cin >> n >> m;
@@ -154,12 +224,16 @@ int main() {
     auto ans_greedy = solve_greedy(n, m, costs, sets);
     auto ans_reverse_delete = solve_reverse_delete(n, m, costs, sets);
     auto ans_local_search = solve_local_search(n, m, costs, sets);
+    auto ans_grasp = solve_grasp(n, m, costs, sets);
     auto ans = ans_greedy;
     if (ans_reverse_delete.first < ans.first) {
         ans = ans_reverse_delete;
     }
     if (ans_local_search.first < ans.first) {
         ans = ans_local_search;
+    }
+    if (ans_grasp.first < ans.first) {
+        ans = ans_grasp;
     }
     cout << ans.first << endl;
     for (auto val : ans.second) {
