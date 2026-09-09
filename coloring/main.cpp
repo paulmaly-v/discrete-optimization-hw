@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <numeric>
 #include <random>
+#include <chrono>
 using namespace std;
 
 pair<int, vector<int>> solve_greedy(int n, const vector<vector<int>>& e, const vector<int>& order) {
@@ -87,6 +88,98 @@ pair<int, vector<int>> solve_local_search(int n, const vector<vector<int>>& e, p
     return ans;
 }
 
+pair<int, vector<int>> solve_tabucol(int n, const vector<vector<int>>& e, pair<int, vector<int>> ans) {
+    mt19937 rand(123);
+    auto start = chrono::steady_clock::now();
+    while (ans.first > 1) {
+        int k = ans.first - 1;
+        vector<int> sizes(ans.first, 0);
+        for (auto c : ans.second) ++sizes[c];
+        int removed = min_element(sizes.begin(), sizes.end()) - sizes.begin();
+        vector<int> color = ans.second;
+        vector<int> order;
+        for (int v = 0; v < n; ++v) {
+            if (color[v] == removed) {
+                color[v] = -1;
+                order.push_back(v);
+            } else if (color[v] == k) {
+                color[v] = removed;
+            }
+        }
+        shuffle(order.begin(), order.end(), rand);
+        vector<vector<int>> count(n, vector<int>(k, 0));
+        vector<vector<int>> tabu(n, vector<int>(k, 0));
+        for (int v = 0; v < n; ++v) {
+            if (color[v] == -1) continue;
+            for (auto u : e[v]) ++count[u][color[v]];
+        }
+        for (auto v : order) {
+            int c = min_element(count[v].begin(), count[v].end()) - count[v].begin();
+            color[v] = c;
+            for (auto u : e[v]) ++count[u][c];
+        }
+
+        int conflicts = 0;
+        for (int i = 0; i < n; ++i) conflicts += count[i][color[i]];
+        conflicts /= 2;
+        int best = conflicts;
+        int last = 0;
+        for (int it = 1; conflicts > 0 && it <= 100000 && it - last <= 10000; ++it) {
+            if (it % 256 == 1 && chrono::steady_clock::now() - start >= chrono::seconds(40)) return ans;
+            int v = -1;
+            int next = -1;
+            int delta = 0;
+            int ties = 0;
+            for (int i = 0; i < n; ++i) {
+                if (count[i][color[i]] == 0) continue;
+                for (int c = 0; c < k; ++c) {
+                    if (c == color[i]) continue;
+                    int change = count[i][c] - count[i][color[i]];
+                    if (tabu[i][c] > it && conflicts + change >= best) continue;
+                    if (v == -1 || change < delta) {
+                        v = i;
+                        next = c;
+                        delta = change;
+                        ties = 1;
+                    } else if (change == delta) {
+                        ++ties;
+                        if (rand() % ties == 0) {
+                            v = i;
+                            next = c;
+                        }
+                    }
+                }
+            }
+            if (v == -1) break;
+            int old = color[v];
+            tabu[v][old] = it + 1 + 6 * conflicts / 10 + rand() % 10;
+            conflicts += delta;
+            color[v] = next;
+            for (auto u : e[v]) {
+                ++count[u][next];
+                --count[u][old];
+            }
+            if (conflicts < best) {
+                best = conflicts;
+                last = it;
+            }
+        }
+        if (conflicts != 0) { 
+            break;
+        }
+        vector<int> names(k, -1);
+        int cnt = 0;
+        for (auto& c : color) {
+            if (names[c] == -1) {
+                names[c] = cnt++;
+            }
+            c = names[c];
+        }
+        ans = {cnt, color};
+    }
+    return ans;
+}
+
 int main() {
 
     int n, m;
@@ -106,7 +199,7 @@ int main() {
     auto ans_dsatur = solve_dsatur(n, e);
     if (ans_dsatur.first < ans.first) ans = ans_dsatur;
     ans = solve_local_search(n, e, ans);
-
+    ans = solve_tabucol(n, e, ans);
     cout << ans.first << endl;
     for (auto c : ans.second) cout << c << " ";
     cout << endl;
